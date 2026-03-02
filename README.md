@@ -53,7 +53,7 @@ chmod 600 ~/.config/github2jira/config.yaml
 
 ### Required fields
 
-- `github.token` -- GitHub personal access token with repo read access
+- `github.token` -- GitHub personal access token (see [Creating a GitHub token](#creating-a-github-token))
 - `jira.url` -- JIRA Cloud instance base URL
 - `jira.user` -- JIRA account email
 - `jira.token` -- JIRA API token (generated at https://id.atlassian.com/manage-profile/security/api-tokens)
@@ -83,6 +83,19 @@ jira:
 ```
 
 Values can be an email address, display name, or any string the JIRA user search API resolves. If resolution fails (no match or multiple matches), a warning is logged and the ticket is created without an assignee.
+
+### Creating a GitHub token
+
+The GitHub GraphQL API requires authentication even for public repositories. To create a token:
+
+1. Go to https://github.com/settings/tokens?type=beta (fine-grained tokens)
+2. Click **Generate new token**
+3. Give it a descriptive name (e.g. "github2jira")
+4. For **public repos only**: under "Repository access" select "Public Repositories (read-only)" — no additional permissions needed
+5. For **private repos**: select the specific repositories and grant **Issues** and **Pull requests** read-only permissions under "Repository permissions"
+6. Click **Generate token** and copy the value into `github.token`
+
+Classic tokens also work: create one at https://github.com/settings/tokens/new with the `repo` scope (or no scopes for public-only access).
 
 ## Usage
 
