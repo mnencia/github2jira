@@ -14,12 +14,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var version = "dev"
+
 var (
 	dryRun bool
 	debug  bool
 )
 
 func init() {
+	rootCmd.Version = version
 	rootCmd.PersistentFlags().BoolVarP(&dryRun, "dry-run", "n", false,
 		"perform read operations only, printing what would be done without writing to JIRA")
 	rootCmd.PersistentFlags().BoolVarP(&debug, "debug", "d", false,

@@ -1,0 +1,40 @@
+version: 2
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/mnencia/github2jira/cmd.version={{.Version}}
+
+archives:
+  - format_overrides:
+      - goos: darwin
+        format: zip
+    files:
+      - LICENSE
+      - README.md
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs"
+      - "^chore"
+      - "^ci"
+      - "^test"
+  groups:
+    - title: Bug Fixes
+      regexp: "^fix"
+      order: 0
+    - title: Features
+      regexp: "^feat"
+      order: 1
+    - title: Other
+      order: 999
