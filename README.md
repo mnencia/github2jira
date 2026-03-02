@@ -6,11 +6,34 @@ It fetches metadata from GitHub via the GraphQL API, auto-detects the JIRA issue
 
 ## Installation
 
+### From release binaries
+
+Download the latest archive for your platform from the [releases page](https://github.com/mnencia/github2jira/releases/latest) and extract it:
+
+```sh
+# macOS (Apple Silicon)
+unzip github2jira_*_darwin_arm64.zip
+
+# macOS (Intel)
+unzip github2jira_*_darwin_amd64.zip
+
+# Linux amd64
+tar xzf github2jira_*_linux_amd64.tar.gz
+```
+
+Then move the binary into your `$PATH`:
+
+```sh
+sudo mv github2jira /usr/local/bin/
+```
+
+### With `go install`
+
 ```sh
 go install github.com/mnencia/github2jira@latest
 ```
 
-Or build from source:
+### From source
 
 ```sh
 git clone https://github.com/mnencia/github2jira.git
