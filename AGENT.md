@@ -35,7 +35,10 @@ go build -o github2jira .
 go install .
 ```
 
-There is no Makefile, goreleaser, or CI pipeline. Standard Go tooling only.
+The repository uses standard Go tooling. There is no Makefile.
+
+Release builds are configured through `.goreleaser.yaml`, and GitHub Actions
+workflows under `.github/workflows/` run CI and tagged releases.
 
 ## Testing
 
@@ -56,7 +59,8 @@ go vet ./...
 golangci-lint run ./...
 ```
 
-No `.golangci.yml` config file; default rules apply.
+Use `golangci-lint` for local linting alongside `go vet`. CI currently enforces
+`go vet` and `go test`.
 
 ## Configuration
 
@@ -77,6 +81,7 @@ jira:
   statuses:
     with_pr: "In Development"
     without_pr: "Ready"
+    merged_pr: "Done"
     abandoned: "Abandoned"
   users:                     # optional GitHub login -> JIRA user mapping
     github-login: "jira-email@company.com"
