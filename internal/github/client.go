@@ -134,8 +134,8 @@ func (c *Client) FetchIssue(ctx context.Context, owner, repo string, number int)
 	}
 
 	var result struct {
-		Repository struct {
-			Issue struct {
+		Repository *struct {
+			Issue *struct {
 				Title  string `json:"title"`
 				URL    string `json:"url"`
 				Author struct {
@@ -161,6 +161,10 @@ func (c *Client) FetchIssue(ctx context.Context, owner, repo string, number int)
 
 	if err := json.Unmarshal(data, &result); err != nil {
 		return nil, fmt.Errorf("parsing issue data: %w", err)
+	}
+
+	if result.Repository == nil || result.Repository.Issue == nil {
+		return nil, fmt.Errorf("issue #%d not found in %s/%s", number, owner, repo)
 	}
 
 	issue := result.Repository.Issue
@@ -246,8 +250,8 @@ func (c *Client) FetchPullRequest(ctx context.Context, owner, repo string, numbe
 	}
 
 	var result struct {
-		Repository struct {
-			PullRequest struct {
+		Repository *struct {
+			PullRequest *struct {
 				Title  string `json:"title"`
 				URL    string `json:"url"`
 				State  string `json:"state"`
@@ -278,6 +282,10 @@ func (c *Client) FetchPullRequest(ctx context.Context, owner, repo string, numbe
 
 	if err := json.Unmarshal(data, &result); err != nil {
 		return nil, fmt.Errorf("parsing pull request data: %w", err)
+	}
+
+	if result.Repository == nil || result.Repository.PullRequest == nil {
+		return nil, fmt.Errorf("pull request #%d not found in %s/%s", number, owner, repo)
 	}
 
 	pr := result.Repository.PullRequest

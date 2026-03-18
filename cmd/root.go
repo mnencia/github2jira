@@ -2,7 +2,9 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"strings"
@@ -19,7 +21,28 @@ var version = "dev"
 var (
 	dryRun bool
 	debug  bool
+
+	userConfigDir = os.UserConfigDir
+	loadConfig    = config.Load
+	newGitHub     = func(token string) githubClient {
+		return github.NewClient(token)
+	}
+	newJira = func(url, user, token string) (jiraClient, error) {
+		return jira.NewClient(url, user, token)
+	}
 )
+
+type githubClient interface {
+	FetchIssue(ctx context.Context, owner, repo string, number int) (*github.IssueInfo, error)
+	FetchPullRequest(ctx context.Context, owner, repo string, number int) (*github.PRInfo, error)
+}
+
+type jiraClient interface {
+	ResolveUser(query string) (jira.ResolvedUser, error)
+	FindExisting(project, repo string, number int, urls []string) ([]jira.FindResult, error)
+	UpdateDescription(issueKey, description string) error
+	CreateIssue(params jira.CreateParams) (*jira.CreatedIssue, error)
+}
 
 func init() {
 	rootCmd.Version = version
@@ -82,13 +105,20 @@ func formatLink(l ghLink) string {
 	return fmt.Sprintf("Issue: %s", smartLink(l.URL))
 }
 
+func writeLine(w io.Writer, format string, args ...any) error {
+	_, err := fmt.Fprintf(w, format+"\n", args...)
+	return err
+}
+
 func run(cmd *cobra.Command, args []string) error {
-	configDir, err := os.UserConfigDir()
+	out := cmd.OutOrStdout()
+
+	configDir, err := userConfigDir()
 	if err != nil {
 		return fmt.Errorf("finding config directory: %w", err)
 	}
 
-	cfg, err := config.Load(configDir)
+	cfg, err := loadConfig(configDir)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
@@ -100,7 +130,7 @@ func run(cmd *cobra.Command, args []string) error {
 
 	debugf("parsed URL: %s/%s %s #%d", parsed.Owner, parsed.Repo, parsed.Kind, parsed.Number)
 
-	ghClient := github.NewClient(cfg.GitHub.Token)
+	ghClient := newGitHub(cfg.GitHub.Token)
 
 	var (
 		summary       string
@@ -206,7 +236,7 @@ func run(cmd *cobra.Command, args []string) error {
 	issueType := issuetype.Detect(labels, prTitle)
 	debugf("detected issue type: %s", issueType)
 
-	jiraClient, err := jira.NewClient(cfg.Jira.URL, cfg.Jira.User, cfg.Jira.Token)
+	jiraClient, err := newJira(cfg.Jira.URL, cfg.Jira.User, cfg.Jira.Token)
 	if err != nil {
 		return fmt.Errorf("creating JIRA client: %w", err)
 	}
@@ -267,17 +297,29 @@ func run(cmd *cobra.Command, args []string) error {
 		}
 
 		if dryRun {
-			fmt.Println("mode: dry-run")
+			if err := writeLine(out, "mode: dry-run"); err != nil {
+				return fmt.Errorf("writing output: %w", err)
+			}
 		} else {
-			fmt.Println("mode: update")
+			if err := writeLine(out, "mode: update"); err != nil {
+				return fmt.Errorf("writing output: %w", err)
+			}
 		}
 
 		for _, e := range workingSet {
-			fmt.Printf("existing: %s  %s\n", e.Key, e.URL)
-			fmt.Printf("summary: %s (unchanged)\n", e.Summary)
-			fmt.Printf("status: %s (unchanged)\n", e.Status)
+			if err := writeLine(out, "existing: %s  %s", e.Key, e.URL); err != nil {
+				return fmt.Errorf("writing output: %w", err)
+			}
+			if err := writeLine(out, "summary: %s (unchanged)", e.Summary); err != nil {
+				return fmt.Errorf("writing output: %w", err)
+			}
+			if err := writeLine(out, "status: %s (unchanged)", e.Status); err != nil {
+				return fmt.Errorf("writing output: %w", err)
+			}
 			if e.Assignee != "" {
-				fmt.Printf("assignee: %s (unchanged)\n", e.Assignee)
+				if err := writeLine(out, "assignee: %s (unchanged)", e.Assignee); err != nil {
+					return fmt.Errorf("writing output: %w", err)
+				}
 			}
 		}
 
@@ -301,9 +343,13 @@ func run(cmd *cobra.Command, args []string) error {
 				}
 				updatedDesc := e.Description + "\n" + strings.Join(newParts, "\n")
 
-				fmt.Println("adding missing links:")
+				if err := writeLine(out, "adding missing links:"); err != nil {
+					return fmt.Errorf("writing output: %w", err)
+				}
 				for _, l := range missingLinks {
-					fmt.Println(" ", l.URL)
+					if err := writeLine(out, "  %s", l.URL); err != nil {
+						return fmt.Errorf("writing output: %w", err)
+					}
 				}
 				if !dryRun {
 					if err := jiraClient.UpdateDescription(e.Key, updatedDesc); err != nil {
@@ -329,19 +375,35 @@ func run(cmd *cobra.Command, args []string) error {
 	debugf("target status: %s (prState=%s)", targetStatus, prState)
 
 	if dryRun {
-		fmt.Println("mode: dry-run")
+		if err := writeLine(out, "mode: dry-run"); err != nil {
+			return fmt.Errorf("writing output: %w", err)
+		}
 	} else {
-		fmt.Println("mode: create")
+		if err := writeLine(out, "mode: create"); err != nil {
+			return fmt.Errorf("writing output: %w", err)
+		}
 	}
 
-	fmt.Printf("project: %s\n", cfg.Jira.Project)
-	fmt.Printf("type: %s\n", issueType)
-	fmt.Printf("summary: %s\n", summary)
-	fmt.Printf("description: %s\n", description)
-	if assignee.AccountID != "" {
-		fmt.Printf("assignee: %s\n", assignee.DisplayName)
+	if err := writeLine(out, "project: %s", cfg.Jira.Project); err != nil {
+		return fmt.Errorf("writing output: %w", err)
 	}
-	fmt.Printf("transition to: %s\n", targetStatus)
+	if err := writeLine(out, "type: %s", issueType); err != nil {
+		return fmt.Errorf("writing output: %w", err)
+	}
+	if err := writeLine(out, "summary: %s", summary); err != nil {
+		return fmt.Errorf("writing output: %w", err)
+	}
+	if err := writeLine(out, "description: %s", description); err != nil {
+		return fmt.Errorf("writing output: %w", err)
+	}
+	if assignee.AccountID != "" {
+		if err := writeLine(out, "assignee: %s", assignee.DisplayName); err != nil {
+			return fmt.Errorf("writing output: %w", err)
+		}
+	}
+	if err := writeLine(out, "transition to: %s", targetStatus); err != nil {
+		return fmt.Errorf("writing output: %w", err)
+	}
 
 	if dryRun {
 		return nil
@@ -360,7 +422,9 @@ func run(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("creating JIRA issue: %w", err)
 	}
 
-	fmt.Printf("created: %s  %s\n", created.Key, created.URL)
+	if err := writeLine(out, "created: %s  %s", created.Key, created.URL); err != nil {
+		return fmt.Errorf("writing output: %w", err)
+	}
 
 	return nil
 }
