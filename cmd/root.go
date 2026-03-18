@@ -105,13 +105,23 @@ func formatLink(l ghLink) string {
 	return fmt.Sprintf("Issue: %s", smartLink(l.URL))
 }
 
-func writeLine(w io.Writer, format string, args ...any) error {
-	_, err := fmt.Fprintf(w, format+"\n", args...)
-	return err
+// lineWriter wraps an io.Writer and remembers the first write error,
+// turning subsequent writes into no-ops. This avoids repetitive
+// per-line error checks when printing CLI output.
+type lineWriter struct {
+	w   io.Writer
+	err error
+}
+
+func (lw *lineWriter) printf(format string, args ...any) {
+	if lw.err != nil {
+		return
+	}
+	_, lw.err = fmt.Fprintf(lw.w, format+"\n", args...)
 }
 
 func run(cmd *cobra.Command, args []string) error {
-	out := cmd.OutOrStdout()
+	out := &lineWriter{w: cmd.OutOrStdout()}
 
 	configDir, err := userConfigDir()
 	if err != nil {
@@ -297,29 +307,17 @@ func run(cmd *cobra.Command, args []string) error {
 		}
 
 		if dryRun {
-			if err := writeLine(out, "mode: dry-run"); err != nil {
-				return fmt.Errorf("writing output: %w", err)
-			}
+			out.printf("mode: dry-run")
 		} else {
-			if err := writeLine(out, "mode: update"); err != nil {
-				return fmt.Errorf("writing output: %w", err)
-			}
+			out.printf("mode: update")
 		}
 
 		for _, e := range workingSet {
-			if err := writeLine(out, "existing: %s  %s", e.Key, e.URL); err != nil {
-				return fmt.Errorf("writing output: %w", err)
-			}
-			if err := writeLine(out, "summary: %s (unchanged)", e.Summary); err != nil {
-				return fmt.Errorf("writing output: %w", err)
-			}
-			if err := writeLine(out, "status: %s (unchanged)", e.Status); err != nil {
-				return fmt.Errorf("writing output: %w", err)
-			}
+			out.printf("existing: %s  %s", e.Key, e.URL)
+			out.printf("summary: %s (unchanged)", e.Summary)
+			out.printf("status: %s (unchanged)", e.Status)
 			if e.Assignee != "" {
-				if err := writeLine(out, "assignee: %s (unchanged)", e.Assignee); err != nil {
-					return fmt.Errorf("writing output: %w", err)
-				}
+				out.printf("assignee: %s (unchanged)", e.Assignee)
 			}
 		}
 
@@ -343,22 +341,21 @@ func run(cmd *cobra.Command, args []string) error {
 				}
 				updatedDesc := e.Description + "\n" + strings.Join(newParts, "\n")
 
-				if err := writeLine(out, "adding missing links:"); err != nil {
-					return fmt.Errorf("writing output: %w", err)
-				}
+				out.printf("adding missing links:")
 				for _, l := range missingLinks {
-					if err := writeLine(out, "  %s", l.URL); err != nil {
-						return fmt.Errorf("writing output: %w", err)
-					}
+					out.printf("  %s", l.URL)
 				}
 				if !dryRun {
+					if out.err != nil {
+						return fmt.Errorf("writing output: %w", out.err)
+					}
 					if err := jiraClient.UpdateDescription(e.Key, updatedDesc); err != nil {
 						return fmt.Errorf("updating existing issue description: %w", err)
 					}
 				}
 			}
 		}
-		return nil
+		return out.err
 	}
 
 	// No existing issue found — create a new one
@@ -375,38 +372,25 @@ func run(cmd *cobra.Command, args []string) error {
 	debugf("target status: %s (prState=%s)", targetStatus, prState)
 
 	if dryRun {
-		if err := writeLine(out, "mode: dry-run"); err != nil {
-			return fmt.Errorf("writing output: %w", err)
-		}
+		out.printf("mode: dry-run")
 	} else {
-		if err := writeLine(out, "mode: create"); err != nil {
-			return fmt.Errorf("writing output: %w", err)
-		}
+		out.printf("mode: create")
 	}
 
-	if err := writeLine(out, "project: %s", cfg.Jira.Project); err != nil {
-		return fmt.Errorf("writing output: %w", err)
-	}
-	if err := writeLine(out, "type: %s", issueType); err != nil {
-		return fmt.Errorf("writing output: %w", err)
-	}
-	if err := writeLine(out, "summary: %s", summary); err != nil {
-		return fmt.Errorf("writing output: %w", err)
-	}
-	if err := writeLine(out, "description: %s", description); err != nil {
-		return fmt.Errorf("writing output: %w", err)
-	}
+	out.printf("project: %s", cfg.Jira.Project)
+	out.printf("type: %s", issueType)
+	out.printf("summary: %s", summary)
+	out.printf("description: %s", description)
 	if assignee.AccountID != "" {
-		if err := writeLine(out, "assignee: %s", assignee.DisplayName); err != nil {
-			return fmt.Errorf("writing output: %w", err)
-		}
+		out.printf("assignee: %s", assignee.DisplayName)
 	}
-	if err := writeLine(out, "transition to: %s", targetStatus); err != nil {
-		return fmt.Errorf("writing output: %w", err)
-	}
+	out.printf("transition to: %s", targetStatus)
 
 	if dryRun {
-		return nil
+		return out.err
+	}
+	if out.err != nil {
+		return fmt.Errorf("writing output: %w", out.err)
 	}
 
 	created, err := jiraClient.CreateIssue(jira.CreateParams{
@@ -422,9 +406,7 @@ func run(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("creating JIRA issue: %w", err)
 	}
 
-	if err := writeLine(out, "created: %s  %s", created.Key, created.URL); err != nil {
-		return fmt.Errorf("writing output: %w", err)
-	}
+	out.printf("created: %s  %s", created.Key, created.URL)
 
-	return nil
+	return out.err
 }

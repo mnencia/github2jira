@@ -43,6 +43,18 @@ func TestFetchIssueReturnsErrorWhenIssueIsMissing(t *testing.T) {
 	}
 }
 
+func TestFetchIssueReturnsErrorWhenRepositoryIsMissing(t *testing.T) {
+	client := newGraphQLTestClient(t, `{"data":{"repository":null}}`)
+
+	_, err := client.FetchIssue(context.Background(), "acme", "nope", 1)
+	if err == nil {
+		t.Fatal("expected an error for a missing repository")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestFetchPullRequestReturnsErrorWhenPullRequestIsMissing(t *testing.T) {
 	client := newGraphQLTestClient(t, `{"data":{"repository":{"pullRequest":null}}}`)
 
@@ -51,6 +63,18 @@ func TestFetchPullRequestReturnsErrorWhenPullRequestIsMissing(t *testing.T) {
 		t.Fatal("expected an error for a missing pull request")
 	}
 	if !strings.Contains(err.Error(), `pull request #456 not found in acme/widget`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestFetchPullRequestReturnsErrorWhenRepositoryIsMissing(t *testing.T) {
+	client := newGraphQLTestClient(t, `{"data":{"repository":null}}`)
+
+	_, err := client.FetchPullRequest(context.Background(), "acme", "nope", 1)
+	if err == nil {
+		t.Fatal("expected an error for a missing repository")
+	}
+	if !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
