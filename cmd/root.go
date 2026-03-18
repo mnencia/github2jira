@@ -120,6 +120,13 @@ func (lw *lineWriter) printf(format string, args ...any) {
 	_, lw.err = fmt.Fprintf(lw.w, format+"\n", args...)
 }
 
+func (lw *lineWriter) writeErr() error {
+	if lw.err == nil {
+		return nil
+	}
+	return fmt.Errorf("writing output: %w", lw.err)
+}
+
 func run(cmd *cobra.Command, args []string) error {
 	out := &lineWriter{w: cmd.OutOrStdout()}
 
@@ -345,17 +352,17 @@ func run(cmd *cobra.Command, args []string) error {
 				for _, l := range missingLinks {
 					out.printf("  %s", l.URL)
 				}
+				if err := out.writeErr(); err != nil {
+					return err
+				}
 				if !dryRun {
-					if out.err != nil {
-						return fmt.Errorf("writing output: %w", out.err)
-					}
 					if err := jiraClient.UpdateDescription(e.Key, updatedDesc); err != nil {
 						return fmt.Errorf("updating existing issue description: %w", err)
 					}
 				}
 			}
 		}
-		return out.err
+		return out.writeErr()
 	}
 
 	// No existing issue found — create a new one
@@ -386,11 +393,11 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 	out.printf("transition to: %s", targetStatus)
 
-	if dryRun {
-		return out.err
+	if err := out.writeErr(); err != nil {
+		return err
 	}
-	if out.err != nil {
-		return fmt.Errorf("writing output: %w", out.err)
+	if dryRun {
+		return nil
 	}
 
 	created, err := jiraClient.CreateIssue(jira.CreateParams{

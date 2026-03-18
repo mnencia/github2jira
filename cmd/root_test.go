@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"slices"
 	"strings"
 	"testing"
@@ -82,6 +83,23 @@ func runCommand(arg string) (string, error) {
 
 	err := run(command, []string{arg})
 	return output.String(), err
+}
+
+func runCommandWithWriter(w io.Writer, arg string) error {
+	command := &cobra.Command{}
+	command.SetOut(w)
+	command.SetErr(w)
+	command.SetContext(context.Background())
+
+	return run(command, []string{arg})
+}
+
+type errWriter struct {
+	err error
+}
+
+func (w errWriter) Write([]byte) (int, error) {
+	return 0, w.err
 }
 
 func testConfig() *config.Config {
@@ -1025,6 +1043,116 @@ func TestRunCreateIssueError(t *testing.T) {
 		t.Fatal("expected error from CreateIssue failure")
 	}
 	if !strings.Contains(err.Error(), "creating JIRA issue") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunDryRunCreateWrapsOutputWriteError(t *testing.T) {
+	swapCommandDeps(t)
+	dryRun = true
+
+	loadConfig = func(string) (*config.Config, error) {
+		return testConfig(), nil
+	}
+	newGitHub = func(string) githubClient {
+		return mockGitHubClient{
+			fetchIssueFunc: func(_ context.Context, owner, repo string, number int) (*github.IssueInfo, error) {
+				return &github.IssueInfo{
+					Owner: owner, Repo: repo, Number: number,
+					Title:  "Add dark mode",
+					URL:    "https://github.com/acme/widget/issues/10",
+					Labels: []string{"enhancement"},
+					Author: github.GitHubAuthor{Login: "octocat", Name: "Mona"},
+				}, nil
+			},
+		}
+	}
+
+	var createCalled bool
+	newJira = func(_, _, _ string) (jiraClient, error) {
+		return mockJiraClient{
+			resolveUserFunc: func(string) (jira.ResolvedUser, error) {
+				return jira.ResolvedUser{AccountID: "acct-1", DisplayName: "Jira User"}, nil
+			},
+			findExistingFunc: func(string, string, int, []string) ([]jira.FindResult, error) {
+				return nil, nil
+			},
+			createIssueFunc: func(jira.CreateParams) (*jira.CreatedIssue, error) {
+				createCalled = true
+				return nil, nil
+			},
+		}, nil
+	}
+
+	err := runCommandWithWriter(errWriter{err: errors.New("broken pipe")}, "https://github.com/acme/widget/issues/10")
+	if err == nil {
+		t.Fatal("expected write error")
+	}
+	if createCalled {
+		t.Fatal("expected dry-run not to create an issue")
+	}
+	if !strings.Contains(err.Error(), "writing output: broken pipe") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunDryRunUpdateWrapsOutputWriteError(t *testing.T) {
+	swapCommandDeps(t)
+	dryRun = true
+
+	loadConfig = func(string) (*config.Config, error) {
+		return testConfig(), nil
+	}
+	newGitHub = func(string) githubClient {
+		return mockGitHubClient{
+			fetchPullRequestFunc: func(_ context.Context, owner, repo string, number int) (*github.PRInfo, error) {
+				return &github.PRInfo{
+					Owner: owner, Repo: repo, Number: number,
+					Title:  "feat(auth): improve login flow",
+					URL:    "https://github.com/acme/widget/pull/456",
+					State:  "OPEN",
+					Author: github.GitHubAuthor{Login: "octocat", Name: "Mona"},
+					LinkedIssues: []github.IssueInfo{{
+						Number: 123,
+						Title:  "Improve login flow",
+						URL:    "https://github.com/acme/widget/issues/123",
+						Labels: []string{"enhancement"},
+					}},
+				}, nil
+			},
+		}
+	}
+
+	var updateCalled bool
+	newJira = func(_, _, _ string) (jiraClient, error) {
+		return mockJiraClient{
+			resolveUserFunc: func(string) (jira.ResolvedUser, error) {
+				return jira.ResolvedUser{AccountID: "acct-1", DisplayName: "Jira User"}, nil
+			},
+			findExistingFunc: func(string, string, int, []string) ([]jira.FindResult, error) {
+				return []jira.FindResult{{
+					Key:         "PROJ-9",
+					URL:         "https://jira.example/browse/PROJ-9",
+					Summary:     "widget#123 - Improve login flow",
+					Status:      "In Development",
+					Description: "Issue: [https://github.com/acme/widget/issues/123|https://github.com/acme/widget/issues/123|smart-link]",
+				}}, nil
+			},
+			updateDescriptionFunc: func(string, string) error {
+				updateCalled = true
+				return nil
+			},
+		}, nil
+	}
+
+	err := runCommandWithWriter(errWriter{err: errors.New("broken pipe")}, "https://github.com/acme/widget/pull/456")
+	if err == nil {
+		t.Fatal("expected write error")
+	}
+	if updateCalled {
+		t.Fatal("expected dry-run not to update the issue description")
+	}
+	if !strings.Contains(err.Error(), "writing output: broken pipe") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
