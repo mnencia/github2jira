@@ -262,7 +262,8 @@ func run(cmd *cobra.Command, args []string) error {
 	var assignee jira.ResolvedUser
 	if author.Login != "" {
 		userQuery := author.Name
-		if mapped, ok := cfg.Jira.Users[author.Login]; ok {
+		// Viper lowercases map keys, so look up with a lowercase login.
+		if mapped, ok := cfg.Jira.Users[strings.ToLower(author.Login)]; ok {
 			userQuery = mapped
 		}
 		debugf("resolving JIRA user: query=%q (login=%s)", userQuery, author.Login)

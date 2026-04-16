@@ -117,6 +117,8 @@ func testConfig() *config.Config {
 				MergedPR:  "Done",
 				Abandoned: "Abandoned",
 			},
+			// Keys are lowercase to match Viper's behavior when
+			// unmarshaling YAML map keys.
 			Users: map[string]string{
 				"octocat": "jira-user@example.com",
 			},
@@ -807,6 +809,65 @@ func TestRunUserResolutionFailureIsNonFatal(t *testing.T) {
 		"mode: create",
 		"created: PROJ-42",
 	)
+}
+
+func TestRunMixedCaseLoginResolvesViaCaseInsensitiveLookup(t *testing.T) {
+	swapCommandDeps(t)
+
+	cfg := testConfig()
+	// Simulate Viper's behavior: map key is lowercase even though
+	// the YAML had "MixedCase".
+	cfg.Jira.Users["mixedcase"] = "mixed@example.com"
+
+	loadConfig = func(string) (*config.Config, error) {
+		return cfg, nil
+	}
+	newGitHub = func(string) githubClient {
+		return mockGitHubClient{
+			fetchIssueFunc: func(_ context.Context, owner, repo string, number int) (*github.IssueInfo, error) {
+				return &github.IssueInfo{
+					Owner:  owner,
+					Repo:   repo,
+					Number: 10,
+					Title:  "Add dark mode",
+					URL:    "https://github.com/acme/widget/issues/10",
+					Labels: []string{"enhancement"},
+					// GitHub returns mixed-case login
+					Author: github.GitHubAuthor{Login: "MixedCase", Name: "Mixed User"},
+				}, nil
+			},
+		}
+	}
+
+	var resolveQuery string
+	var created jira.CreateParams
+	newJira = func(_, _, _ string) (jiraClient, error) {
+		return mockJiraClient{
+			resolveUserFunc: func(query string) (jira.ResolvedUser, error) {
+				resolveQuery = query
+				return jira.ResolvedUser{AccountID: "acct-2", DisplayName: "Mixed User"}, nil
+			},
+			findExistingFunc: func(string, string, int, []string) ([]jira.FindResult, error) {
+				return nil, nil
+			},
+			createIssueFunc: func(params jira.CreateParams) (*jira.CreatedIssue, error) {
+				created = params
+				return &jira.CreatedIssue{Key: "PROJ-42", URL: "https://jira.example/browse/PROJ-42"}, nil
+			},
+		}, nil
+	}
+
+	_, err := runCommand("https://github.com/acme/widget/issues/10")
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	if resolveQuery != "mixed@example.com" {
+		t.Fatalf("expected mapped email as resolve query, got: %s", resolveQuery)
+	}
+	if created.Assignee != "acct-2" {
+		t.Fatalf("expected assignee acct-2, got: %s", created.Assignee)
+	}
 }
 
 // ----- error path tests -----
